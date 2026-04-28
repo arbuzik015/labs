@@ -1,6 +1,7 @@
 """
-Модель данных для учета температуры
-Формат данных: ДД.ММ.ГГГГ,Место,Температура
+Модель данных для учета температуры и качества воздуха
+Формат данных: ДД.ММ.ГГГГ,Место,Температура,Качество_воздуха
+Качество воздуха: Хорошее, Удовлетворительное, Плохое, Опасное
 """
 
 import datetime
@@ -21,18 +22,22 @@ class InvalidDataError(Exception):
 
 
 class Temperature:
-    """Запись о температуре"""
-    def __init__(self, date_str: str, location: str, value: float):
+    """Запись о температуре и качестве воздуха"""
+    def __init__(self, date_str: str, location: str, value: float, air_quality: str = "Хорошее"):
         self.date_str = date_str
         self.location = location
         self.value = value
+        self.air_quality = air_quality
     
     def __repr__(self):
-        return f"Temperature({self.date_str}, {self.location}, {self.value})"
+        return f"Temperature({self.date_str}, {self.location}, {self.value}, {self.air_quality})"
 
 
 class TemperatureModel:
-    """Модель для работы с данными температуры"""
+    """Модель для работы с данными температуры и качества воздуха"""
+    
+    # Допустимые значения качества воздуха
+    VALID_AIR_QUALITY = ["Хорошее", "Удовлетворительное", "Плохое", "Опасное"]
     
     def __init__(self):
         self.records: List[Temperature] = []
@@ -47,10 +52,14 @@ class TemperatureModel:
         for observer in self.observers:
             observer()
     
+    def validate_air_quality(self, air_quality: str) -> bool:
+        """Проверка качества воздуха"""
+        return air_quality in self.VALID_AIR_QUALITY
+    
     def parse_line(self, line: str) -> Temperature:
         """
         Парсинг строки в запись
-        Формат: ДД.ММ.ГГГГ,Место,Температура
+        Формат: ДД.ММ.ГГГГ,Место,Температура,Качество_воздуха
         """
         line = line.strip()
         if not line:
@@ -60,14 +69,38 @@ class TemperatureModel:
         if ';' in line:
             parts = [p.strip() for p in line.split(';')]
         else:
-            parts = [p.strip() for p in line.split(',')]
+            # Разбиваем по запятой, но учитываем, что в числе может быть запятая
+            raw_parts = line.split(',')
+            
+            # Если получилось больше 4 частей, возможно запятая в числе
+            if len(raw_parts) > 4:
+                # Первая часть - дата
+                date_part = raw_parts[0].strip()
+                # Предпоследняя часть - температура
+                temp_part = raw_parts[-2].strip()
+                # Последняя часть - качество воздуха
+                quality_part = raw_parts[-1].strip()
+                # Все остальное - место (объединяем через запятую)
+                location_part = ','.join(raw_parts[1:-2]).strip()
+                parts = [date_part, location_part, temp_part, quality_part]
+            else:
+                parts = [p.strip() for p in raw_parts]
         
-        if len(parts) != 3:
+        # Удаляем пустые части
+        parts = [p for p in parts if p]
+        
+        # Поддерживаем старый формат (3 поля) и новый (4 поля)
+        if len(parts) == 3:
+            # Старый формат: дата, место, температура (качество по умолчанию "Хорошее")
+            date_str, location, value_str = parts
+            air_quality = "Хорошее"
+        elif len(parts) == 4:
+            # Новый формат: дата, место, температура, качество
+            date_str, location, value_str, air_quality = parts
+        else:
             raise InvalidDataError(
-                f"Неверный формат: нужно 3 поля (дата, место, температура), получено {len(parts)}"
+                f"Неверный формат: нужно 3 или 4 поля (дата, место, температура, [качество]), получено {len(parts)}"
             )
-        
-        date_str, location, value_str = parts
         
         # Проверка формата даты ДД.ММ.ГГГГ
         if not re.match(r"^(\d{2})\.(\d{2})\.(\d{4})$", date_str):
@@ -80,16 +113,27 @@ class TemperatureModel:
         except ValueError as e:
             raise InvalidDataError(f"Некорректная дата: {date_str} - {e}")
         
-        # Проверка температуры
+        # Проверка температуры (поддержка точки и запятой)
         try:
-            value = float(value_str.replace(',', '.'))
+            # Заменяем запятую на точку
+            value_str = value_str.replace(',', '.')
+            # Удаляем возможные пробелы
+            value_str = value_str.strip()
+            value = float(value_str)
         except ValueError:
             raise InvalidDataError(f"Некорректное значение температуры: {value_str}")
         
         if not location:
             raise InvalidDataError("Местоположение не может быть пустым")
         
-        return Temperature(date_str, location, value)
+        # Проверка качества воздуха
+        if not self.validate_air_quality(air_quality):
+            raise InvalidDataError(
+                f"Некорректное качество воздуха: {air_quality}. "
+                f"Допустимые значения: {', '.join(self.VALID_AIR_QUALITY)}"
+            )
+        
+        return Temperature(date_str, location, value, air_quality)
     
     def load_from_file(self, filename: str) -> int:
         """Загрузка данных из файла"""
@@ -122,7 +166,7 @@ class TemperatureModel:
         try:
             with open(filename, "w", encoding="utf-8") as f:
                 for r in self.records:
-                    f.write(f"{r.date_str},{r.location},{r.value}\n")
+                    f.write(f"{r.date_str},{r.location},{r.value},{r.air_quality}\n")
             logging.info("Сохранено %d записей в %s", len(self.records), filename)
             self._notify_observers()
             return True
@@ -130,40 +174,89 @@ class TemperatureModel:
             logging.error("Ошибка сохранения в %s: %s", filename, e)
             return False
     
-    def add_record(self, date_str: str, location: str, value: float):
+    def add_record(self, date_str: str, location: str, value: float, air_quality: str = "Хорошее"):
         """Добавление записи"""
-        self.records.append(Temperature(date_str, location, value))
+        # Базовая валидация
+        if not date_str or not location:
+            raise InvalidDataError("Дата и местоположение не могут быть пустыми")
+        
+        if not isinstance(value, (int, float)):
+            raise InvalidDataError(f"Температура должна быть числом, получено: {value}")
+        
+        if not self.validate_air_quality(air_quality):
+            raise InvalidDataError(
+                f"Некорректное качество воздуха: {air_quality}. "
+                f"Допустимые значения: {', '.join(self.VALID_AIR_QUALITY)}"
+            )
+        
+        self.records.append(Temperature(date_str, location, value, air_quality))
         self._notify_observers()
     
     def add_from_csv(self, csv_data: str):
         """
         Добавление записи из CSV строки для команды ADD
-        Формат: дата; место; температура или дата,место,температура
+        Формат: дата; место; температура; качество или дата,место,температура,качество
         """
+        # Очищаем строку
+        csv_data = csv_data.strip()
+        
+        # Определяем разделитель
         if ';' in csv_data:
             parts = [p.strip() for p in csv_data.split(';')]
         else:
             parts = [p.strip() for p in csv_data.split(',')]
         
-        if len(parts) != 3:
+        # Удаляем пустые части
+        parts = [p for p in parts if p]
+        
+        # Поддерживаем 3 или 4 поля
+        if len(parts) == 3:
+            date_str, location, value_str = parts
+            air_quality = "Хорошее"
+        elif len(parts) == 4:
+            date_str, location, value_str, air_quality = parts
+        else:
             raise InvalidDataError(
-                f"ADD: нужно 3 поля (дата, место, температура), получено {len(parts)}"
+                f"ADD: нужно 3 или 4 поля (дата, место, температура, [качество]), получено {len(parts)}: {parts}"
             )
         
-        date_str, location, value_str = parts
-        line = f"{date_str},{location},{value_str}"
-        record = self.parse_line(line)
-        self.records.append(record)
-        self._notify_observers()
+        # Преобразуем температуру в число
+        try:
+            value = float(value_str.replace(',', '.'))
+        except ValueError:
+            raise InvalidDataError(f"ADD: некорректное значение температуры: {value_str}")
+        
+        # Валидация даты
+        if not re.match(r"^(\d{2})\.(\d{2})\.(\d{4})$", date_str):
+            raise InvalidDataError(f"ADD: неверный формат даты: {date_str}. Ожидается ДД.ММ.ГГГГ")
+        
+        try:
+            day, month, year = map(int, date_str.split('.'))
+            datetime.datetime(year, month, day)
+        except ValueError as e:
+            raise InvalidDataError(f"ADD: некорректная дата: {date_str} - {e}")
+        
+        if not location:
+            raise InvalidDataError("ADD: местоположение не может быть пустым")
+        
+        if not self.validate_air_quality(air_quality):
+            raise InvalidDataError(
+                f"ADD: некорректное качество воздуха: {air_quality}. "
+                f"Допустимые значения: {', '.join(self.VALID_AIR_QUALITY)}"
+            )
+        
+        # Добавляем запись
+        self.add_record(date_str, location, value, air_quality)
     
     def remove_by_condition(self, condition: str):
         """
         Удаление записей по условию для команды REM
-        Поддерживаемые поля: date, location, value
+        Поддерживаемые поля: date, location, value, quality/air_quality
         """
         condition = condition.strip()
         
-        pattern = r'(date|date_str|location|place|value|temperature|temp)\s*(==|!=|<=|>=|<|>|contains)\s*(.+)'
+        # Обновленный паттерн для поддержки разных форматов
+        pattern = r'(date|date_str|location|place|value|temperature|temp|quality|air_quality|air)\s*(==|!=|<=|>=|<|>|contains)\s*(.+)'
         match = re.fullmatch(pattern, condition, re.IGNORECASE)
         
         if not match:
@@ -172,7 +265,9 @@ class TemperatureModel:
                 "  value < 100\n"
                 "  location == Москва\n"
                 "  date > 15.03.2024\n"
-                "  location contains пет"
+                "  location contains пет\n"
+                "  quality == Хорошее\n"
+                "  air_quality != Плохое"
             )
         
         field_name, operator, raw_value = match.groups()
@@ -241,6 +336,27 @@ class TemperatureModel:
                 if operator == "contains":
                     return right in left
                 raise InvalidDataError(f"REM: для location поддерживаются только ==, !=, contains")
+            
+            # Поле quality (качество воздуха)
+            elif field_name in ('quality', 'air_quality', 'air'):
+                left = record.air_quality
+                right = raw_value
+                
+                # Проверка допустимого значения
+                valid_values = TemperatureModel.VALID_AIR_QUALITY
+                if right not in valid_values:
+                    raise InvalidDataError(
+                        f"REM: недопустимое значение качества воздуха: {right}. "
+                        f"Допустимые: {', '.join(valid_values)}"
+                    )
+                
+                if operator == "==":
+                    return left == right
+                if operator == "!=":
+                    return left != right
+                if operator == "contains":
+                    return right.lower() in left.lower()
+                raise InvalidDataError(f"REM: для quality поддерживаются только ==, !=, contains")
             
             return False
         
@@ -319,3 +435,10 @@ class TemperatureModel:
     def count(self) -> int:
         """Количество записей"""
         return len(self.records)
+    
+    def get_statistics_by_quality(self) -> dict:
+        """Получить статистику по качеству воздуха"""
+        stats = {quality: 0 for quality in self.VALID_AIR_QUALITY}
+        for record in self.records:
+            stats[record.air_quality] += 1
+        return stats

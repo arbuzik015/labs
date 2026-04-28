@@ -15,17 +15,30 @@ class TestCommands(unittest.TestCase):
         self.model = TemperatureModel()
     
     def test_add_from_csv_valid(self):
-        """Тест: ADD с корректными данными"""
-        self.model.add_from_csv("20.03.2024;Москва;10.5")
+        """Тест: ADD с корректными данными (4 поля)"""
+        self.model.add_from_csv("20.03.2024;Москва;10.5;Хорошее")
         self.assertEqual(self.model.count(), 1)
         record = self.model.get_record(0)
         self.assertEqual(record.location, "Москва")
         self.assertEqual(record.value, 10.5)
+        self.assertEqual(record.air_quality, "Хорошее")
+    
+    def test_add_from_csv_valid_3_fields(self):
+        """Тест: ADD с 3 полями (качество по умолчанию)"""
+        self.model.add_from_csv("20.03.2024;Москва;10.5")
+        self.assertEqual(self.model.count(), 1)
+        record = self.model.get_record(0)
+        self.assertEqual(record.air_quality, "Хорошее")
     
     def test_add_from_csv_with_comma(self):
         """Тест: ADD с запятой вместо точки с запятой"""
-        self.model.add_from_csv("20.03.2024,Москва,10.5")
+        self.model.add_from_csv("20.03.2024,Москва,10.5,Хорошее")
         self.assertEqual(self.model.count(), 1)
+    
+    def test_add_from_csv_invalid_quality(self):
+        """Тест: ADD с некорректным качеством воздуха"""
+        with self.assertRaises(InvalidDataError):
+            self.model.add_from_csv("20.03.2024;Москва;10.5;Отличное")
     
     def test_add_from_csv_invalid(self):
         """Тест: ADD с некорректными данными"""
@@ -34,36 +47,36 @@ class TestCommands(unittest.TestCase):
     
     def test_remove_by_value_less(self):
         """Тест: REM value < X"""
-        self.model.add_record("15.03.2024", "Москва", -5.5)
-        self.model.add_record("16.03.2024", "Киев", 10.0)
-        self.model.add_record("17.03.2024", "Минск", -2.0)
+        self.model.add_record("15.03.2024", "Москва", -5.5, "Хорошее")
+        self.model.add_record("16.03.2024", "Киев", 10.0, "Удовлетворительное")
+        self.model.add_record("17.03.2024", "Минск", -2.0, "Плохое")
         
         self.model.remove_by_condition("value < 0")
         self.assertEqual(self.model.count(), 1)
         self.assertEqual(self.model.get_record(0).location, "Киев")
     
-    def test_remove_by_value_greater(self):
-        """Тест: REM value > X"""
-        self.model.add_record("15.03.2024", "Москва", -5.5)
-        self.model.add_record("16.03.2024", "Киев", 10.0)
+    def test_remove_by_quality_equal(self):
+        """Тест: REM quality == X"""
+        self.model.add_record("15.03.2024", "Москва", -5.5, "Хорошее")
+        self.model.add_record("16.03.2024", "Киев", 10.0, "Удовлетворительное")
+        self.model.add_record("17.03.2024", "Минск", -2.0, "Плохое")
         
-        self.model.remove_by_condition("value > 0")
-        self.assertEqual(self.model.count(), 1)
-        self.assertEqual(self.model.get_record(0).location, "Москва")
-    
-    def test_remove_by_value_equal(self):
-        """Тест: REM value == X"""
-        self.model.add_record("15.03.2024", "Москва", -5.5)
-        self.model.add_record("16.03.2024", "Киев", 10.0)
+        self.model.remove_by_condition("quality == Хорошее")
+        self.assertEqual(self.model.count(), 2)
         
-        self.model.remove_by_condition("value == 10.0")
+    def test_remove_by_quality_contains(self):
+        """Тест: REM quality contains X"""
+        self.model.add_record("15.03.2024", "Москва", -5.5, "Хорошее")
+        self.model.add_record("16.03.2024", "Киев", 10.0, "Удовлетворительное")
+        
+        self.model.remove_by_condition("quality contains уд")
         self.assertEqual(self.model.count(), 1)
-        self.assertEqual(self.model.get_record(0).location, "Москва")
+        self.assertEqual(self.model.get_record(0).air_quality, "Хорошее")
     
     def test_remove_by_location_equal(self):
         """Тест: REM location == X"""
-        self.model.add_record("15.03.2024", "Москва", -5.5)
-        self.model.add_record("16.03.2024", "Киев", 10.0)
+        self.model.add_record("15.03.2024", "Москва", -5.5, "Хорошее")
+        self.model.add_record("16.03.2024", "Киев", 10.0, "Удовлетворительное")
         
         self.model.remove_by_condition("location == Москва")
         self.assertEqual(self.model.count(), 1)
@@ -71,8 +84,8 @@ class TestCommands(unittest.TestCase):
     
     def test_remove_by_location_contains(self):
         """Тест: REM location contains X"""
-        self.model.add_record("15.03.2024", "Санкт-Петербург", -5.5)
-        self.model.add_record("16.03.2024", "Киев", 10.0)
+        self.model.add_record("15.03.2024", "Санкт-Петербург", -5.5, "Хорошее")
+        self.model.add_record("16.03.2024", "Киев", 10.0, "Удовлетворительное")
         
         self.model.remove_by_condition("location contains петер")
         self.assertEqual(self.model.count(), 1)
@@ -80,8 +93,8 @@ class TestCommands(unittest.TestCase):
     
     def test_remove_by_date_before(self):
         """Тест: REM date < X"""
-        self.model.add_record("15.03.2024", "Москва", -5.5)
-        self.model.add_record("20.03.2024", "Киев", 10.0)
+        self.model.add_record("15.03.2024", "Москва", -5.5, "Хорошее")
+        self.model.add_record("20.03.2024", "Киев", 10.0, "Удовлетворительное")
         
         self.model.remove_by_condition("date < 18.03.2024")
         self.assertEqual(self.model.count(), 1)
@@ -89,8 +102,8 @@ class TestCommands(unittest.TestCase):
     
     def test_remove_by_date_after(self):
         """Тест: REM date > X"""
-        self.model.add_record("15.03.2024", "Москва", -5.5)
-        self.model.add_record("20.03.2024", "Киев", 10.0)
+        self.model.add_record("15.03.2024", "Москва", -5.5, "Хорошее")
+        self.model.add_record("20.03.2024", "Киев", 10.0, "Удовлетворительное")
         
         self.model.remove_by_condition("date > 18.03.2024")
         self.assertEqual(self.model.count(), 1)
@@ -98,24 +111,24 @@ class TestCommands(unittest.TestCase):
     
     def test_remove_no_match(self):
         """Тест: REM без совпадений"""
-        self.model.add_record("15.03.2024", "Москва", -5.5)
+        self.model.add_record("15.03.2024", "Москва", -5.5, "Хорошее")
         self.model.remove_by_condition("value > 100")
         self.assertEqual(self.model.count(), 1)
     
     def test_execute_command_add(self):
         """Тест: execute_command ADD"""
-        self.model.execute_command("ADD 20.03.2024;Москва;10.5")
+        self.model.execute_command("ADD 20.03.2024;Москва;10.5;Хорошее")
         self.assertEqual(self.model.count(), 1)
     
     def test_execute_command_rem(self):
         """Тест: execute_command REM"""
-        self.model.add_record("15.03.2024", "Москва", -5.5)
+        self.model.add_record("15.03.2024", "Москва", -5.5, "Хорошее")
         self.model.execute_command("REM value < 0")
         self.assertEqual(self.model.count(), 0)
     
     def test_execute_command_save(self):
         """Тест: execute_command SAVE"""
-        self.model.add_record("15.03.2024", "Москва", -5.5)
+        self.model.add_record("15.03.2024", "Москва", -5.5, "Хорошее")
         
         with tempfile.NamedTemporaryFile(suffix='.txt', delete=False) as f:
             filename = f.name
@@ -126,7 +139,7 @@ class TestCommands(unittest.TestCase):
             
             with open(filename, 'r', encoding='utf-8') as f:
                 content = f.read()
-                self.assertIn("15.03.2024,Москва,-5.5", content)
+                self.assertIn("15.03.2024,Москва,-5.5,Хорошее", content)
         finally:
             os.unlink(filename)
     
@@ -139,8 +152,8 @@ class TestCommands(unittest.TestCase):
         """Тест: apply_commands_file"""
         with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
             f.write("# Комментарий\n")
-            f.write("ADD 20.03.2024;Москва;10.5\n")
-            f.write("ADD 21.03.2024;Киев;-2.0\n")
+            f.write("ADD 20.03.2024;Москва;10.5;Хорошее\n")
+            f.write("ADD 21.03.2024;Киев;-2.0;Плохое\n")
             f.write("REM value < 0\n")
             commands_file = f.name
         
@@ -155,9 +168,9 @@ class TestCommands(unittest.TestCase):
     def test_apply_commands_file_with_errors(self):
         """Тест: apply_commands_file с ошибками"""
         with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
-            f.write("ADD 20.03.2024;Москва;10.5\n")
+            f.write("ADD 20.03.2024;Москва;10.5;Хорошее\n")
             f.write("INVALID command\n")
-            f.write("ADD 21.03.2024;Киев;-2.0\n")
+            f.write("ADD 21.03.2024;Киев;-2.0;Плохое\n")
             commands_file = f.name
         
         try:
@@ -173,9 +186,9 @@ class TestCommands(unittest.TestCase):
         with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
             f.write("# Это комментарий\n")
             f.write("\n")
-            f.write("ADD 20.03.2024;Москва;10.5\n")
+            f.write("ADD 20.03.2024;Москва;10.5;Хорошее\n")
             f.write("  # Еще комментарий\n")
-            f.write("ADD 21.03.2024;Киев;-2.0\n")
+            f.write("ADD 21.03.2024;Киев;-2.0;Плохое\n")
             commands_file = f.name
         
         try:

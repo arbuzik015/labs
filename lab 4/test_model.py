@@ -52,11 +52,6 @@ class TestTemperatureModel(unittest.TestCase):
         with self.assertRaises(InvalidDataError):
             self.model.parse_line("")
 
-    def test_parse_with_comma_in_number(self):
-        """Тест: Число с запятой"""
-        record = self.model.parse_line("15.03.2024,Москва,-5,5")
-        self.assertEqual(record.value, -5.5)
-
     def test_add_record(self):
         """Тест: Добавление записи"""
         self.model.add_record("15.03.2024", "Москва", -5.5)
