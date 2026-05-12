@@ -21,18 +21,18 @@ def run_all_tests():
     # Отключаем логирование
     logging.disable(logging.CRITICAL)
     
-    # Загружаем тесты модели
+    # Загружаем тесты
     from test_model import TestTemperatureModel
+    from test_ui import TestMainView, TestWorkView, TestHelpView
+    from test_commands import TestCommands  # Импортируем только TestCommands
     
     # Создаем suite
     suite = unittest.TestSuite()
     suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestTemperatureModel))
-    
-    # Загружаем UI тесты
-    from test_ui import TestMainView, TestWorkView, TestHelpView
     suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestMainView))
     suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestWorkView))
     suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestHelpView))
+    suite.addTest(unittest.TestLoader().loadTestsFromTestCase(TestCommands))
     
     # Запускаем
     runner = unittest.TextTestRunner(verbosity=2)
